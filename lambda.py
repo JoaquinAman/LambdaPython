@@ -5,19 +5,34 @@ import boto3
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-destination_bucket = 'devopslatam02-resultcatalog'
+destination_bucket = 'devopslatam02-result-lb'
 destination_folder = 'publications'
-
 
 athena_staging_table = 'publications_staging'
 athena_staging_database = 'devopslatam02'
 athena_s3_results_folder = 'athena_results'
 
-#target_folder_names = [year, month, day]
-def create_data_file(target_folder_names):
-    # Enviar query a Athena
-    query = f"SELECT * FROM {athena_staging_table}"
+target_folder_names = ['2022', '06', '30']
+
+def lambda_handler(event, context):
+    logger.info(f"event {event}")
+    logger.info(f"context {context}")
     
+    logger.info(f"event output: {event['params']['questions']['output']}")
+    print(f"este mensaje va al default ouput (cloudwatch)")
+
+    input_args = event['params']['questions']['input_args']
+    output = event['params']['questions']['output']
+
+    create_query(input_args, output)
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Hello from Lambda!')
+    }
+
+def create_query(input_args, output):
+    query = f"SELECT {output} FROM {athena_staging_table} WHERE {input_args} ORDER BY {output} DESC LIMIT 1"
     target_folder_path = '/'.join(target_folder_names)
     target_s3_folder = f"s3://{destination_bucket}/{athena_s3_results_folder}/{target_folder_path}/"
     
@@ -70,52 +85,3 @@ def create_data_file(target_folder_names):
     
     # quitar el primer / en target y source key target_key.lstrip('/')
     s3_resurce.meta.client.copy( { 'Bucket': source_bucket, 'Key': source_key.lstrip('/')}, destination_bucket, target_key.lstrip('/') )
-
-    
-
-def create_s3_folder(parent_folders, sub_folder_name):
-
-    s3_client = boto3.client('s3')
-    
-    parent_path = '/'.join(parent_folders) # elemento1/elemento2/elementon...
-    new_folder_path =  f"{destination_folder}/{sub_folder_name}/"  if parent_path == ''  else  f"{destination_folder}/{parent_path}/{sub_folder_name}/"
-    response = s3_client.put_object(Bucket=destination_bucket, Key=new_folder_path)
-    
-    http_code = response['ResponseMetadata']['HTTPStatusCode']  # response.ResponseMetadata.HTTPStatusCode
-    result = 'SUCCEEDED' if http_code == 200 else 'FAILED'
-    logger.info(f'Creating s3 folder {new_folder_path}, status {result}')
-        
-
-# def define una funcion 
-# lambda_handler es el nombre de la function (entry point como el "main")
-# (event, context) son parametros = datos que vienen desde afuera cuando se invoca el lambda
-def lambda_handler(event, context):
-    logger.info(f"event {event}")
-    logger.info(f"context {context}")
-    print(f"este mensaje va al default ouput (cloudwatch)")
-    
-    # Inspeccionar el event y obtener el “key” (nombre del file que se copio)
-    # El `event` puede contener 1 o mas `Records`
-    # Cada s3 object tiene un `key` por ejemplo 'key': 'publications_staging/publications_20220501000000.csv'
-    # TODO: Loop for each `record` in Records
-    uploaded_file_key = event["Records"][0]['s3']['object']['key']
-    
-    # publications_20220501000000.csv
-    uploaded_file_name = uploaded_file_key[ uploaded_file_key.find('/') + 1: ]
-    logger.info(f"uploaded_file_name {uploaded_file_name}")
-    
-    year = uploaded_file_name[uploaded_file_name.find('_')+1:uploaded_file_name.find('_')+5]
-    month = uploaded_file_name[uploaded_file_name.find('_')+5:uploaded_file_name.find('_')+7]
-    day = uploaded_file_name[uploaded_file_name.find('_')+7:uploaded_file_name.find('_')+9]
-    
-    create_s3_folder([], year)
-    create_s3_folder([year], month)
-    create_s3_folder([year, month], day)
-    
-    target_folder_names = [year, month, day]
-    create_data_file(target_folder_names)
-    
-    return {
-        'statusCode': 200,
-        'body': json.dumps('Hello from Lambda!')
-    }
